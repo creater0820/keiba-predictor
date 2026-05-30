@@ -1,4 +1,4 @@
-"""推奨馬テーブル: 確率降順、信頼度バッジ、上位3頭ハイライト。"""
+"""推奨馬テーブル: 確率降順、信頼度バッジ、上位3頭を緑文字で強調。"""
 
 from __future__ import annotations
 
@@ -6,6 +6,11 @@ import pandas as pd
 import streamlit as st
 
 from src.analysis.combiner import RaceProbabilities
+
+# 上位3頭の「順位」「馬名」に適用する文字色（緑）
+TOP3_TEXT_COLOR = "#22c55e"
+# 文字色を適用する列
+TOP3_HIGHLIGHT_COLUMNS = ("順位", "馬名")
 
 
 def confidence_badge(conf: float) -> str:
@@ -32,25 +37,34 @@ def build_results_df(result: RaceProbabilities) -> pd.DataFrame:
     return pd.DataFrame(rows)
 
 
+def style_results(df: pd.DataFrame):
+    """上位3頭（順位1〜3）の「順位」「馬名」を緑の太字にする Styler を返す。
+
+    背景色のハイライトは行わない（他の行と同じ背景）。テスト可能なよう
+    render から分離している。
+    """
+    def _top3_text(row):
+        # 順位1〜3 の対象列だけ緑の太字、それ以外は無装飾
+        if row["順位"] <= 3:
+            style = f"color: {TOP3_TEXT_COLOR}; font-weight: 700"
+            return [style if col in TOP3_HIGHLIGHT_COLUMNS else "" for col in row.index]
+        return ["" for _ in row.index]
+
+    return (
+        df.style
+        .apply(_top3_text, axis=1)
+        .format({"勝率%": "{:.1f}", "合成スコア": "{:.1f}"})
+    )
+
+
 def render_results_table(result: RaceProbabilities) -> None:
-    """推奨馬テーブルを描画する（上位3頭ハイライト）。"""
+    """推奨馬テーブルを描画する（上位3頭の順位・馬名を緑文字で強調）。"""
     if not result.horses:
         st.info("表示できる出走馬がありません。")
         return
 
     df = build_results_df(result)
-
-    def _highlight_top3(row):
-        # 順位1〜3 の行に背景色（金・銀・銅）
-        colors = {1: "#fff3cd", 2: "#e2e3e5", 3: "#f8d7da"}
-        c = colors.get(row["順位"], "")
-        return [f"background-color: {c}" if c else "" for _ in row]
-
-    styler = (
-        df.style
-        .apply(_highlight_top3, axis=1)
-        .format({"勝率%": "{:.1f}", "合成スコア": "{:.1f}"})
-    )
+    styler = style_results(df)
     st.dataframe(styler, use_container_width=True, hide_index=True)
 
     # 上位3頭のサマリ

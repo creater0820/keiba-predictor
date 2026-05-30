@@ -23,3 +23,7 @@ data/*.db-journal
 data/cache.db
 # 予想結果（個人成果物・リポジトリ外だが念のため除外）
 predictions/
+
+# Finder 複製物
+STATUS 2.md
+.env.local
