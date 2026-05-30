@@ -83,6 +83,7 @@ def predict_race(
 
     config.ensure_dirs()
     client = NetkeibaClient()
+    client.set_request_budget(config.MAX_REQUESTS_PER_RACE)  # 暴走防止のハードキャップ
     repo.init_db()
 
     try:
@@ -109,13 +110,18 @@ def predict_race(
                 client, session, date, venue, surface, dates, force_refresh=force_refresh
             )
 
-            # --- 各馬: 血統 + 脚質 ---
+            # --- 各馬データを並列でプリフェッチ（血統ページ・過去走・種牡馬ページ）---
+            _tick(0.25, f"{len(card.entries)}頭分のデータを並列取得中…（3並列）")
+            _prefetch_parallel(client, session, card.entries, force_refresh)
+
+            # --- 各馬: 血統 + 脚質（プリフェッチ済みキャッシュを参照するので高速）---
             horse_data: list[HorseData] = []
             n = max(1, len(card.entries))
             for i, e in enumerate(card.entries):
-                _tick(0.2 + 0.6 * (i / n), f"血統・脚質を取得中… ({i+1}/{n}) {e.name}")
+                _tick(0.6 + 0.2 * (i / n), f"スコア用データ整理中… ({i+1}/{n}) {e.name}")
+                # プリフェッチ済みなので force_refresh は不要（二重取得を防ぐ）
                 horse_data.append(
-                    _gather_horse(client, session, e, bucket, surface, force_refresh)
+                    _gather_horse(client, session, e, bucket, surface, force_refresh=False)
                 )
 
             # --- 全体平均勝率（この距離×馬場の基準）---
@@ -152,6 +158,7 @@ def predict_race(
                 "bias_data_date": bias.data_date,
                 "global_avg_win_rate": round(global_avg, 4),
                 "field_size": len(card.entries),
+                "network_requests": client.network_count,  # この処理での実通信回数
             }
             _tick(1.0, "完了")
             return result
@@ -165,6 +172,35 @@ def _find_race(races, venue: str, race_no: int):
         if r.venue == venue and r.race_no == race_no:
             return r
     return None
+
+
+def _prefetch_parallel(client, session, entries, force_refresh: bool) -> None:
+    """各馬の血統ページ・過去走ページ・種牡馬ページを並列でプリフェッチする。
+
+    ここで http_cache を温めておけば、後段の逐次処理（_gather_horse）は
+    すべてキャッシュヒットになり高速化される。429/503 が連続した場合は
+    client 側が並列度を落として継続し、最終的に中断なら例外が伝播する。
+    """
+    # Phase 1: 全馬の血統ページ + 過去走ページを一括並列取得
+    page_urls: list[str] = []
+    for e in entries:
+        page_urls.append(pedigree.PED_URL.format(horse_id=e.horse_id))
+        page_urls.append(running_style.RESULT_PAGE_URL.format(horse_id=e.horse_id))
+    client.fetch_many(page_urls, force_refresh=force_refresh)
+
+    # Phase 2: 血統ページから父・母父 ID を集め、未取得の種牡馬ページを並列取得
+    sire_ids: set[str] = set()
+    for e in entries:
+        try:
+            ids = pedigree.fetch_pedigree_ids(client, e.horse_id)  # キャッシュヒット
+            for sid in (ids.sire_id, ids.dam_sire_id):
+                if sid and not repo.has_pedigree_for_sire(session, sid):
+                    sire_ids.add(sid)
+        except Exception:
+            continue
+    if sire_ids:
+        sire_urls = [pedigree.SIRE_DIST_URL.format(sire_id=s) for s in sire_ids]
+        client.fetch_many(sire_urls, force_refresh=force_refresh)
 
 
 def _gather_horse(client, session, entry, bucket, surface, force_refresh) -> HorseData:

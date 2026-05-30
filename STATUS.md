@@ -66,6 +66,23 @@ fb35837 feat: task8 streamlit UI + task9 betting suggester + task10a pipeline
 
 ---
 
+## ⚡ 高速化（並列スクレイピング）— Before / After
+
+`client.fetch_many(urls, max_concurrent=3)` を追加し、pipeline の各馬データ取得を
+並列プリフェッチ化。逐次間隔も 1.5s→1.0s に短縮。
+
+| ワークロード | Before（逐次） | After（3並列） | 効果 |
+|---|---:|---:|---:|
+| ダービー36URL（血統+過去走, bench_parallel.py） | 43.6秒 / 1.21s/req | **11.9秒 / 0.33s/req** | **73%短縮・3.7倍速** |
+| 東京1R フル予想（run_one_race.py, 16頭） | 約121秒（旧逐次） | **45秒 / 74req** | **約63%短縮** |
+| ウォーム（キャッシュ） | 0.6秒 | 1.1秒 | 実通信0 |
+
+- レート制御: グローバル間隔 = 1.0s ÷ 同時接続数（3並列で実効 0.33s/req）。スレッドセーフな
+  スロット予約方式。
+- 安全装置: 429/503 連発→並列度を実質1に降格(60s クールダウン)→3連続で中断。
+  1レース最大150リクエストのハードキャップ。robots.txt 尊重は維持。
+- ログ: 並列取得時に `[client] parallel fetch: 3 workers, N urls` を出力（Cloud ログで確認可）。
+
 ## 完了タスク
 
 ### Task 1-2: スケルトン + scraper/client.py

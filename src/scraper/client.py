@@ -21,7 +21,9 @@
 from __future__ import annotations
 
 import sqlite3
+import threading
 import time
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
 from datetime import datetime, timedelta
 from random import Random
@@ -44,6 +46,18 @@ class RobotsDisallowedError(Exception):
 
 class FetchError(Exception):
     """リトライを使い切っても取得に失敗した時の例外。"""
+
+
+class RateLimitError(FetchError):
+    """429/503 等のレート制限系エラーでリトライを使い切った時の例外。
+
+    並列取得側がこれを検知して並列度を落とす（degrade）ために、通常の
+    FetchError と区別する。
+    """
+
+
+class RequestBudgetExceeded(FetchError):
+    """1 レースあたりのリクエスト上限（ハードキャップ）を超えた時の例外。"""
 
 
 @dataclass
@@ -92,14 +106,54 @@ class NetkeibaClient:
         self._session = requests.Session()
         self._session.headers.update({"User-Agent": config.USER_AGENT})
 
-        # 直近のリクエスト時刻（レート制限の計算に使う）。最初は 0。
+        # 直近のリクエスト時刻（逐次レート制限の計算に使う）。最初は 0。
         self._last_request_time: float = 0.0
 
         # robots.txt のパーサ（最初に fetch する時に遅延読み込みする）
         self._robot_parser: robotparser.RobotFileParser | None = None
+        self._robots_lock = threading.Lock()  # 並列時の初期化競合を防ぐ
+
+        # 並列レート制限用: 次にリクエストを投げてよい時刻（monotonic）。
+        self._next_slot: float = 0.0
+        self._slot_lock = threading.Lock()
+        # 429/503 を食らったら True にして並列間隔を広げる（実効並列度を 1 に）。
+        self._degraded: bool = False
+
+        # 実ネットワークリクエスト数のカウンタ（ベンチ＆ハードキャップ用）
+        self._network_count: int = 0
+        self._max_requests: int | None = None
+        self._count_lock = threading.Lock()
 
         # HTTP キャッシュ用テーブルを準備
         self._init_cache_db()
+
+    # ------------------------------------------------------------------
+    # リクエスト予算（ハードキャップ）・カウンタ
+    # ------------------------------------------------------------------
+    def set_request_budget(self, max_requests: int | None) -> None:
+        """1 レース処理あたりの実リクエスト上限を設定し、カウンタを 0 に戻す。"""
+        with self._count_lock:
+            self._max_requests = max_requests
+            self._network_count = 0
+
+    @property
+    def network_count(self) -> int:
+        """これまでに実際にネットワークへ出た回数（キャッシュヒットは含まない）。"""
+        return self._network_count
+
+    @property
+    def degraded(self) -> bool:
+        """429/503 を受けて並列度を落とした状態かどうか。"""
+        return self._degraded
+
+    def _count_network_request(self, url: str) -> None:
+        """実ネットワーク要求の直前に呼ぶ。上限超過なら例外。"""
+        with self._count_lock:
+            self._network_count += 1
+            if self._max_requests is not None and self._network_count > self._max_requests:
+                raise RequestBudgetExceeded(
+                    f"リクエスト上限 {self._max_requests} を超えました（url={url}）"
+                )
 
     # ------------------------------------------------------------------
     # キャッシュ DB
@@ -186,15 +240,19 @@ class NetkeibaClient:
         if self._robot_parser is not None:
             return  # すでに読み込み済み
 
-        parser = robotparser.RobotFileParser()
-        parser.set_url(config.ROBOTS_TXT_URL)
-        try:
-            parser.read()  # ここで robots.txt を HTTP 取得する
-        except Exception:
-            # robots.txt 自体が取れない場合、can_fetch は False を返しがち。
-            # 明示的に「読めなかった」状態のパーサを保持しておく。
-            pass
-        self._robot_parser = parser
+        # 並列取得時に複数スレッドが同時に読まないようロックで保護
+        with self._robots_lock:
+            if self._robot_parser is not None:
+                return
+            parser = robotparser.RobotFileParser()
+            parser.set_url(config.ROBOTS_TXT_URL)
+            try:
+                parser.read()  # ここで robots.txt を HTTP 取得する
+            except Exception:
+                # robots.txt 自体が取れない場合、can_fetch は False を返しがち。
+                # 明示的に「読めなかった」状態のパーサを保持しておく。
+                pass
+            self._robot_parser = parser
 
     def _check_robots(self, url: str) -> None:
         """指定 URL の取得が robots.txt で許可されているか確認する。
@@ -233,6 +291,21 @@ class NetkeibaClient:
 
         self._last_request_time = time.monotonic()
 
+    def _acquire_slot(self, spacing: float) -> None:
+        """並列取得用のスレッドセーフなレート制限。
+
+        「次に投げてよい時刻（_next_slot）」をロック下で予約し、ロックを離して
+        から待機する。これにより各リクエストが spacing 秒ずつずれて発射され、
+        複数ワーカーが居ても実効レートが spacing で頭打ちになる。
+        """
+        with self._slot_lock:
+            now = time.monotonic()
+            slot = max(now, self._next_slot)
+            self._next_slot = slot + spacing
+            wait = slot - now
+        if wait > 0:
+            time.sleep(wait)
+
     # ------------------------------------------------------------------
     # 公開 API
     # ------------------------------------------------------------------
@@ -261,7 +334,11 @@ class NetkeibaClient:
         return self.fetch_detailed(url, force_refresh=force_refresh).html
 
     def fetch_detailed(self, url: str, force_refresh: bool = False) -> FetchResult:
-        """fetch() と同じだが、キャッシュ由来かどうか等の詳細も返す版。"""
+        """fetch() と同じだが、キャッシュ由来かどうか等の詳細も返す版（逐次）。"""
+        return self._fetch_detailed_impl(url, force_refresh, self._respect_rate_limit)
+
+    def _fetch_detailed_impl(self, url: str, force_refresh: bool, rate_limit_fn) -> FetchResult:
+        """fetch_detailed の本体。レート制限のかけ方（逐次/並列）を差し替え可能にする。"""
         # --- 1. キャッシュ確認 ---
         if not force_refresh:
             cached = self._read_cache(url)
@@ -272,7 +349,7 @@ class NetkeibaClient:
         self._check_robots(url)
 
         # --- 3 & 4. レート制限 + リトライ付き取得 ---
-        html, status_code, etag = self._fetch_with_retry(url)
+        html, status_code, etag = self._fetch_with_retry(url, rate_limit_fn)
 
         # --- 5. キャッシュ保存 ---
         fetched_at = self._write_cache(url, html, status_code, etag)
@@ -285,16 +362,23 @@ class NetkeibaClient:
             fetched_at=fetched_at,
         )
 
-    def _fetch_with_retry(self, url: str) -> tuple[str, int, str | None]:
+    def _fetch_with_retry(self, url: str, rate_limit_fn=None) -> tuple[str, int, str | None]:
         """実際の HTTP 取得。失敗時は指数バックオフでリトライする。
 
         Returns:
             (html, status_code, etag) のタプル。
 
+        Args:
+            url: 取得 URL。
+            rate_limit_fn: 各試行前に呼ぶレート制限関数。None なら逐次用を使う。
+
         Raises:
-            FetchError: 全リトライが失敗した場合。
+            RateLimitError: 429/503 系でリトライを使い切った場合。
+            FetchError: その他で全リトライが失敗した場合。
         """
+        rl = rate_limit_fn or self._respect_rate_limit
         last_error: Exception | None = None
+        hit_rate_limit = False
 
         # 試行回数: 0, 1, 2, ... MAX_RETRIES まで（合計 MAX_RETRIES+1 回）
         for attempt in range(config.MAX_RETRIES + 1):
@@ -304,7 +388,10 @@ class NetkeibaClient:
                 time.sleep(backoff)
 
             # どの試行でもレート制限は守る
-            self._respect_rate_limit()
+            rl()
+
+            # 実ネットワークに出る直前にカウント（ハードキャップ判定）
+            self._count_network_request(url)
 
             try:
                 response = self._session.get(
@@ -317,6 +404,7 @@ class NetkeibaClient:
 
             # 一時的な障害ステータスならリトライ
             if response.status_code in config.RETRY_STATUS_CODES:
+                hit_rate_limit = True
                 last_error = FetchError(
                     f"一時エラー status={response.status_code} url={url}"
                 )
@@ -339,10 +427,100 @@ class NetkeibaClient:
             etag = response.headers.get("ETag")
             return response.text, response.status_code, etag
 
-        # ここに来たら全リトライ失敗
-        raise FetchError(
-            f"リトライ上限（{config.MAX_RETRIES} 回）に達しました: {url}"
-        ) from last_error
+        # ここに来たら全リトライ失敗。429/503 起因なら RateLimitError で区別する。
+        msg = f"リトライ上限（{config.MAX_RETRIES} 回）に達しました: {url}"
+        if hit_rate_limit:
+            raise RateLimitError(msg) from last_error
+        raise FetchError(msg) from last_error
+
+    # ------------------------------------------------------------------
+    # 並列取得
+    # ------------------------------------------------------------------
+    def fetch_many(
+        self,
+        urls: list[str],
+        max_concurrent: int | None = None,
+        force_refresh: bool = False,
+    ) -> dict[str, str | None]:
+        """複数 URL を同時最大 max_concurrent 本で並列取得する。
+
+        - グローバル間隔 = MIN_INTERVAL_PER_WORKER / max_concurrent でレート制御。
+        - 429/503 を食らったら並列度を実質 1 に落とし（間隔を広げ）、
+          クールダウン後に 1 回だけ再試行する。連続 RATELIMIT_MAX_CONSECUTIVE 回で中断。
+        - キャッシュ済み URL は実通信せず即返る。
+
+        Args:
+            urls: 取得 URL のリスト（重複は除外して処理）。
+            max_concurrent: 同時接続数。None なら config 値。
+            force_refresh: True ならキャッシュ無視。
+
+        Returns:
+            {url: html or None} の辞書（失敗した URL は None）。
+
+        Raises:
+            RateLimitError: 429/503 が連続して中断した場合。
+        """
+        mc = max_concurrent or config.PARALLEL_MAX_CONCURRENT
+        base_spacing = config.MIN_INTERVAL_PER_WORKER / max(1, mc)
+
+        # 重複除外（順序は保たない・辞書で返す）
+        unique = list(dict.fromkeys(urls))
+        results: dict[str, str | None] = {}
+        if unique:
+            # Streamlit Cloud のログにも残る（並列度の確認用）
+            print(f"[client] parallel fetch: {mc} workers, {len(unique)} urls", flush=True)
+
+        state_lock = threading.Lock()
+        consecutive = {"rate_errors": 0}
+        aborted = {"flag": False}
+
+        def _spacing() -> float:
+            # degrade 中はワーカー全員が 1 秒間隔（実効並列度 1）になる
+            return config.MIN_INTERVAL_PER_WORKER if self._degraded else base_spacing
+
+        def _worker(url: str) -> tuple[str, str | None]:
+            if aborted["flag"]:
+                return url, None
+            try:
+                res = self._fetch_detailed_impl(
+                    url, force_refresh, lambda: self._acquire_slot(_spacing())
+                )
+                with state_lock:
+                    consecutive["rate_errors"] = 0
+                    self._degraded = False  # 正常応答で回復
+                return url, res.html
+            except RateLimitError:
+                # 並列度を落とし、クールダウン後に 1 回だけ再試行
+                with state_lock:
+                    self._degraded = True
+                    consecutive["rate_errors"] += 1
+                    if consecutive["rate_errors"] >= config.RATELIMIT_MAX_CONSECUTIVE:
+                        aborted["flag"] = True
+                        return url, None
+                time.sleep(config.RATELIMIT_COOLDOWN_SEC)
+                try:
+                    res = self._fetch_detailed_impl(
+                        url, force_refresh,
+                        lambda: self._acquire_slot(config.MIN_INTERVAL_PER_WORKER),
+                    )
+                    with state_lock:
+                        consecutive["rate_errors"] = 0
+                    return url, res.html
+                except Exception:
+                    return url, None
+            except Exception:
+                # robots 拒否・その他は None（個別失敗。全体は止めない）
+                return url, None
+
+        with ThreadPoolExecutor(max_workers=mc) as ex:
+            for url, html in ex.map(_worker, unique):
+                results[url] = html
+
+        if aborted["flag"]:
+            raise RateLimitError(
+                "429/503 が連続したため並列取得を中断しました（並列度を1に落として再試行後も継続）"
+            )
+        return results
 
     # ------------------------------------------------------------------
     # 補助

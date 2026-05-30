@@ -52,10 +52,24 @@ USER_AGENT: str = (
     f"{APP_NAME}/{APP_VERSION} (personal use; contact: {CONTACT_EMAIL})"
 )
 
-# リクエスト間隔（秒）。最低 1.5 秒は空ける。
-REQUEST_INTERVAL_SEC: float = float(os.getenv("REQUEST_INTERVAL_SEC", "1.5"))
+# リクエスト間隔（秒）。逐次取得時の最低間隔。並列化と合わせ 1.5→1.0 に短縮。
+REQUEST_INTERVAL_SEC: float = float(os.getenv("REQUEST_INTERVAL_SEC", "1.0"))
 # 上記に加えてランダムなゆらぎ（ジッタ）を 0〜この秒数だけ足す。
-REQUEST_JITTER_SEC: float = float(os.getenv("REQUEST_JITTER_SEC", "0.8"))
+REQUEST_JITTER_SEC: float = float(os.getenv("REQUEST_JITTER_SEC", "0.5"))
+
+# ---------------------------------------------------------------------------
+# 並列スクレイピング
+# ---------------------------------------------------------------------------
+# 同時接続数（ThreadPool のワーカー数）。netkeiba への負荷を抑えるため少なめ。
+PARALLEL_MAX_CONCURRENT: int = int(os.getenv("PARALLEL_MAX_CONCURRENT", "3"))
+# 1 ワーカーあたりの最小間隔（秒）。並列時のグローバル間隔は これ / 同時接続数。
+MIN_INTERVAL_PER_WORKER: float = 1.0
+# 429/503 が連続したときのクールダウン（秒）
+RATELIMIT_COOLDOWN_SEC: float = float(os.getenv("RATELIMIT_COOLDOWN_SEC", "60"))
+# 何回連続で 429/503 を食らったら中断するか
+RATELIMIT_MAX_CONSECUTIVE: int = 3
+# 1 レース処理あたりの実ネットワークリクエスト上限（暴走防止のハードキャップ）
+MAX_REQUESTS_PER_RACE: int = int(os.getenv("MAX_REQUESTS_PER_RACE", "150"))
 
 # 1 リクエストあたりのタイムアウト（秒）
 REQUEST_TIMEOUT_SEC: float = 15.0
