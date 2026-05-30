@@ -52,6 +52,10 @@ class HorseData:
     sire_stat: SireStat | None
     dam_sire_stat: SireStat | None
     running_style: str
+    sire_name: str = ""
+    dam_sire_name: str = ""
+    style_n_races: int = 0
+    avg_position_ratio: float | None = None
 
 
 def predict_race(
@@ -130,7 +134,9 @@ def predict_race(
             # --- スコア算出 + 合成 ---
             _tick(0.85, "スコアを合成中…")
             field_styles = [h.running_style for h in horse_data]
-            horse_scores = _build_scores(horse_data, bias, field_styles, global_avg, surface, bucket)
+            horse_scores = _build_scores(
+                horse_data, bias, field_styles, global_avg, surface, bucket, distance_m
+            )
 
             cw = CombineWeights(
                 track_bias=float(weights.get("bias", weights.get("track_bias", 1 / 3))),
@@ -206,11 +212,15 @@ def _prefetch_parallel(client, session, entries, force_refresh: bool) -> None:
 def _gather_horse(client, session, entry, bucket, surface, force_refresh) -> HorseData:
     """1 頭分の血統統計と脚質を取得する（失敗時は中立フォールバック）。"""
     sire_stat = dam_sire_stat = None
+    sire_name = dam_sire_name = ""
     style = "不明"
+    style_n = 0
+    avg_ratio = None
 
     # 血統
     try:
         ids = pedigree.fetch_pedigree_ids(client, entry.horse_id)
+        sire_name, dam_sire_name = ids.sire_name, ids.dam_sire_name
         for sid in (ids.sire_id, ids.dam_sire_id):
             pedigree.ensure_sire_stats(client, session, sid)
         sire_stat = _stat_or_none(session, ids.sire_id, bucket, surface)
@@ -220,7 +230,7 @@ def _gather_horse(client, session, entry, bucket, surface, force_refresh) -> Hor
 
     # 脚質
     try:
-        style, _ = running_style.fetch_and_store_running_style(
+        style, style_n, avg_ratio = running_style.fetch_and_store_running_style(
             client, session, entry.horse_id, force_refresh=force_refresh
         )
     except Exception:
@@ -234,6 +244,10 @@ def _gather_horse(client, session, entry, bucket, surface, force_refresh) -> Hor
         sire_stat=sire_stat,
         dam_sire_stat=dam_sire_stat,
         running_style=style or "不明",
+        sire_name=sire_name,
+        dam_sire_name=dam_sire_name,
+        style_n_races=style_n,
+        avg_position_ratio=avg_ratio,
     )
 
 
@@ -257,8 +271,9 @@ def _global_win_rate(horse_data: list[HorseData]) -> float:
     return sum(rates) / len(rates)
 
 
-def _build_scores(horse_data, bias, field_styles, global_avg, surface, bucket) -> list[HorseScores]:
-    """各馬の 3 スコアを算出して HorseScores のリストにする。"""
+def _build_scores(horse_data, bias, field_styles, global_avg, surface, bucket,
+                  distance_m=0) -> list[HorseScores]:
+    """各馬の 3 スコアを算出して HorseScores のリストにする（文言用 breakdown 込み）。"""
     out: list[HorseScores] = []
     for h in horse_data:
         tb = score_track_bias(TrackBiasScoreInput(
@@ -267,17 +282,24 @@ def _build_scores(horse_data, bias, field_styles, global_avg, surface, bucket) -
             inside_outside_bias=bias.inside_outside_bias,
             pace_bias=bias.pace_bias,
             bias_n_races=bias.n_races,
+            bias_data_date=bias.data_date,
+            bias_venue=bias.venue,
         ))
         ped = score_pedigree(PedigreeScoreInput(
             sire=h.sire_stat,
             dam_sire=h.dam_sire_stat,
             global_avg_win_rate=global_avg,
+            sire_name=h.sire_name,
+            dam_sire_name=h.dam_sire_name,
+            distance_m=distance_m,
             context={"surface": surface, "distance_bucket": bucket},
         ))
         rs = score_running_style(RunningStyleScoreInput(
             running_style=h.running_style,
             post_position=h.post_position,
             field_styles=field_styles,
+            style_n_races=h.style_n_races,
+            avg_position_ratio=h.avg_position_ratio,
         ))
         out.append(HorseScores(
             horse_number=h.horse_number,
@@ -285,5 +307,8 @@ def _build_scores(horse_data, bias, field_styles, global_avg, surface, bucket) -
             track_bias=(tb[0], tb[1]),
             pedigree=(ped[0], ped[1]),
             running_style=(rs[0], rs[1]),
+            track_bias_detail=tb[2],
+            pedigree_detail=ped[2],
+            running_style_detail=rs[2],
         ))
     return out

@@ -43,24 +43,25 @@ class PastRun:
 
 def fetch_and_store_running_style(
     client: NetkeibaClient, session, horse_id: str, force_refresh: bool = False
-) -> tuple[str, int]:
-    """馬の脚質を取得・推定して horses に保存し、(脚質, 走数) を返す。
+) -> tuple[str, int, float | None]:
+    """馬の脚質を取得・推定して horses に保存し、(脚質, 走数, 平均位置率) を返す。
 
     horses に 30 日以内の推定が残っていれば再取得しない（キャッシュ）。
+    平均位置率は新規推定したときのみ得られる（キャッシュ命中時は None）。
 
     Returns:
-        (running_style, confidence_runs) のタプル。
+        (running_style, confidence_runs, avg_position_ratio | None) のタプル。
     """
     # --- キャッシュ確認（horses.fetched_at が 30 日以内なら再取得しない）---
     if not force_refresh:
         horse = repo.get_horse(session, horse_id)
         if horse is not None and horse.running_style and _within_ttl(horse.fetched_at):
-            return (horse.running_style, horse.running_style_confidence)
+            return (horse.running_style, horse.running_style_confidence, None)
 
     # --- 取得・解析・推定 ---
     html = client.fetch(RESULT_PAGE_URL.format(horse_id=horse_id), force_refresh=force_refresh)
     runs = parse_horse_runs(html)
-    style, n_runs, _ = estimate_running_style(runs)
+    style, n_runs, breakdown = estimate_running_style(runs)
 
     # --- 保存（既存の馬情報を壊さないよう merge）---
     repo.upsert_horse(
@@ -69,7 +70,7 @@ def fetch_and_store_running_style(
         running_style=style,
         running_style_confidence=n_runs,
     )
-    return (style, n_runs)
+    return (style, n_runs, breakdown.get("avg_position_ratio"))
 
 
 def parse_horse_runs(html: str) -> list[PastRun]:

@@ -49,6 +49,9 @@ class PedigreeScoreInput:
     global_avg_win_rate: float    # 全体平均勝率（ベイズの寄せ先・基準）
     is_first_surface: bool = False  # 初ダート/初芝か
     distance_change_m: int = 0      # 前走からの距離変更幅(m)。不明なら 0
+    sire_name: str = ""           # 父名（文言用）
+    dam_sire_name: str = ""       # 母父名（文言用）
+    distance_m: int = 0           # レース距離(m)。文言用（"芝2400m前後" 等）
     context: dict = field(default_factory=dict)  # 追加情報（breakdown 用・任意）
 
 
@@ -97,6 +100,9 @@ def score_pedigree(inp: PedigreeScoreInput) -> tuple[float, float, dict]:
     total_n = sire_n + dam_n
     confidence = round(min(1.0, total_n / (2 * k)), 3)
 
+    # サンプル不足（< K=30）でベイズ補正が大きく効いたか
+    bayes_adjusted = (sire_n < k) or (dam_n < k)
+
     breakdown = {
         "base": 50.0,
         "rate_component": round(rate_component, 2),
@@ -111,6 +117,17 @@ def score_pedigree(inp: PedigreeScoreInput) -> tuple[float, float, dict]:
         "global_avg": round(g, 4),
         "is_first_surface": inp.is_first_surface,
         "distance_change_m": inp.distance_change_m,
+        # --- 文言生成用メタ ---
+        "sire_name": inp.sire_name,
+        "sire_distance_win_rate": round(sire_raw, 4),
+        "sire_sample_size": sire_n,
+        "dam_sire_name": inp.dam_sire_name,
+        "dam_sire_distance_win_rate": round(dam_raw, 4),
+        "dam_sire_sample_size": dam_n,
+        "distance_bucket": inp.context.get("distance_bucket", ""),
+        "surface": inp.context.get("surface", ""),
+        "distance_m": inp.distance_m,
+        "bayes_adjusted": bayes_adjusted,
         "score": round(score, 2),
         **inp.context,
     }

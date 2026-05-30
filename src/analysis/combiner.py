@@ -54,6 +54,10 @@ class HorseScores:
     track_bias: tuple[float, float]     # (score 0〜100, confidence 0〜1)
     pedigree: tuple[float, float]
     running_style: tuple[float, float]
+    # 各要素の詳細 breakdown（文言生成用。省略可）
+    track_bias_detail: dict = field(default_factory=dict)
+    pedigree_detail: dict = field(default_factory=dict)
+    running_style_detail: dict = field(default_factory=dict)
 
 
 @dataclass
@@ -66,6 +70,8 @@ class HorseProbability:
     final_score: float       # 重み付き合成スコア(0〜100)
     confidence: float        # 総合信頼度(0〜1)
     breakdown: dict          # DataFrame 化しやすい平坦な dict
+    # 各要素の詳細 breakdown（文言生成用。breakdown とは別に保持しフラット性を保つ）
+    details: dict = field(default_factory=dict)
 
     @property
     def win_pct(self) -> float:
@@ -179,6 +185,11 @@ def combine_race(
             final_score=fs,
             confidence=conf,
             breakdown=breakdown,
+            details={
+                "track_bias": hs.track_bias_detail,
+                "pedigree": hs.pedigree_detail,
+                "running_style": hs.running_style_detail,
+            },
         ))
 
     # 勝率降順にソート（同率は馬番昇順）

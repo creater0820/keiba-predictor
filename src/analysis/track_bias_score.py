@@ -31,6 +31,8 @@ class TrackBiasScoreInput:
     inside_outside_bias: float  # -1(内有利) 〜 +1(外有利)
     pace_bias: float            # -1(前残り) 〜 +1(差し有利)
     bias_n_races: int = 0       # バイアス算出に使ったレース数（信頼度用）
+    bias_data_date: str = ""    # 馬場傾向データの日付（YYYYMMDD）。文言用
+    bias_venue: str = ""        # 馬場傾向データの会場。文言用
 
 
 def score_track_bias(inp: TrackBiasScoreInput) -> tuple[float, float, dict]:
@@ -59,6 +61,9 @@ def score_track_bias(inp: TrackBiasScoreInput) -> tuple[float, float, dict]:
     style_factor = 1.0 if inp.running_style != "不明" else 0.7
     confidence = round(conf_bias * style_factor, 3)
 
+    # 文言生成用に「有利／不利と判定した要素」を言葉で残す
+    matched = _matched_advantages(inp, frame_alignment, pace_alignment)
+
     breakdown = {
         "base": 50.0,
         "frame_component": round(frame_component, 2),
@@ -70,6 +75,36 @@ def score_track_bias(inp: TrackBiasScoreInput) -> tuple[float, float, dict]:
         "post_position": inp.post_position,
         "running_style": inp.running_style,
         "bias_n_races": inp.bias_n_races,
+        # --- 文言生成用メタ ---
+        "bias_data_date": inp.bias_data_date,
+        "bias_venue": inp.bias_venue,
+        "bias_inside_outside": inp.inside_outside_bias,
+        "bias_pace": inp.pace_bias,
+        "horse_post_position": inp.post_position,
+        "horse_running_style": inp.running_style,
+        "matched_advantage": matched,
         "score": round(score, 2),
     }
     return (round(score, 2), confidence, breakdown)
+
+
+def _matched_advantages(inp: TrackBiasScoreInput, frame_align: float, pace_align: float) -> list[str]:
+    """枠・脚質が馬場傾向と合っているか（有利／不利）を言葉のリストにする。"""
+    out: list[str] = []
+    # 枠（内外）
+    if abs(inp.inside_outside_bias) >= 0.1:
+        inside_fav = inp.inside_outside_bias < 0
+        is_inside = inp.post_position <= 4
+        if (inside_fav and is_inside) or (not inside_fav and not is_inside):
+            out.append("内枠有利" if is_inside else "外枠有利")
+        else:
+            out.append("枠順は不利寄り")
+    # ペース（展開）
+    if abs(inp.pace_bias) >= 0.1 and inp.running_style != "不明":
+        front_fav = inp.pace_bias < 0
+        is_front = inp.running_style in ("逃げ", "先行")
+        if (front_fav and is_front) or (not front_fav and not is_front):
+            out.append("前残り展開で先行有利" if front_fav else "差し決着で末脚有利")
+        else:
+            out.append("展開は向きにくい")
+    return out

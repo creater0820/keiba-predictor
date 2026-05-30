@@ -37,6 +37,21 @@ class RunningStyleScoreInput:
     running_style: str        # この馬の脚質（逃げ/先行/差し/追込/不明）
     post_position: int        # 枠番(1〜8)
     field_styles: list[str]   # 出走馬全頭の脚質リスト（自分を含む）
+    style_n_races: int = 0            # 脚質推定に使った走数（文言用）
+    avg_position_ratio: float | None = None  # 直近平均位置率(0=前〜1=後)。不明はNone
+
+
+def _pace_label(pace_signed: float) -> str:
+    """ハイペース度(-1〜+1)を日本語ラベルにする。"""
+    if pace_signed >= 0.4:
+        return "ハイ"
+    if pace_signed >= 0.1:
+        return "ミドル〜ややハイ"
+    if pace_signed <= -0.4:
+        return "スロー"
+    if pace_signed <= -0.1:
+        return "ミドル〜ややスロー"
+    return "ミドル"
 
 
 def _estimate_pace(field_styles: list[str]) -> tuple[float, int, int, int]:
@@ -88,6 +103,16 @@ def score_running_style(inp: RunningStyleScoreInput) -> tuple[float, float, dict
         # 信頼度: 出走馬の脚質がどれだけ判明しているか
         confidence = round((n_known / field_size) if field_size else 0.0, 3)
 
+    # 想定ペースのラベルと根拠（文言用）
+    estimated_pace = _pace_label(pace_signed)
+    pace_basis = (
+        f"逃げ{n_escape}頭・先行{n_front - n_escape}頭/{field_size}頭 → {estimated_pace}ペース推定"
+        if field_size else "出走頭数不明"
+    )
+    post_penalty_reason = ""
+    if frame_penalty < 0:
+        post_penalty_reason = f"大外{inp.post_position}枠 × {inp.running_style}脚質 → {frame_penalty:.0f}"
+
     breakdown = {
         "base": 50.0,
         "fit_component": round(fit_component, 2),
@@ -100,6 +125,12 @@ def score_running_style(inp: RunningStyleScoreInput) -> tuple[float, float, dict
         "style": inp.running_style,
         "style_value": style_value,
         "post_position": inp.post_position,
+        # --- 文言生成用メタ ---
+        "style_confidence_n_races": inp.style_n_races,
+        "avg_position_ratio": inp.avg_position_ratio,
+        "estimated_pace": estimated_pace,
+        "pace_basis": pace_basis,
+        "post_position_penalty": post_penalty_reason,
         "score": round(score, 2),
     }
     return (round(score, 2), confidence, breakdown)
