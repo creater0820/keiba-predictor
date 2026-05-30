@@ -29,5 +29,4 @@ pytest==9.0.3
 # ※ 未設定（TURSO_* 環境変数なし）なら使われず、ローカル SQLite で動作する。
 # ※ 万一クラウドのビルドでこの 2 行が原因で失敗したら、削除しても
 #    アプリは正常動作する（Turso 機能のみ無効化）。
-libsql-experimental==0.0.55
 sqlalchemy-libsql==0.2.0
