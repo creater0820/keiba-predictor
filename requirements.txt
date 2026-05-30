@@ -25,5 +25,7 @@ python-dotenv==1.2.2
 # テスト（ローカル開発用。クラウド実行には不要だが軽量なので残す）
 pytest==9.0.3
 
-# ※ 未設定（TURSO_* 環境変数なし）なら使われず、ローカル SQLite で動作する。
-# ※ 万一クラウドのビルドでこの 2 行が原因で失敗したら、削除しても
+# Turso（libSQL）永続キャッシュ用の純 Python クライアント。
+# HTTP/WebSocket ベースで Rust ビルド不要 → Streamlit Cloud でも導入できる。
+# ※ TURSO_* 環境変数が無ければ使われず、ローカル SQLite で動作する。
+libsql-client>=0.3.0

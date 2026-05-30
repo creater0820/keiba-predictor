@@ -124,8 +124,8 @@ def main() -> None:
 
     st.divider()
     try:
-        from src.storage import engine as _engine
-        st.caption(f"🗄 キャッシュ: {_engine.describe_backend()}　|　⚙️ 並列取得: "
+        from src.storage import repo as _repo
+        st.caption(f"🗄 キャッシュ: {_repo.describe_backend()}　|　⚙️ 並列取得: "
                    f"{__import__('config').PARALLEL_MAX_CONCURRENT}本")
     except Exception:
         pass

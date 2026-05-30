@@ -4,41 +4,39 @@
 
 ---
 
-## おはよう Yasu さん。朝の手順（5 分）
+## Turso 永続キャッシュ（pure Python 版）の有効化手順
 
 ### 即時確認
 - アプリ: https://keiba-predictor-eah6al9bbkdldtbwmj2wk2.streamlit.app
-- **並列化（3並列）でコールド取得が約 63〜73% 短縮**しました（東京1R: 121秒→45秒）。
-  ベンチ詳細は下の「⚡ 高速化」表。
-- UI: 推奨馬テーブルの上位3頭は**緑文字**になり、背景色ハイライトは廃止しました。
-- すべて push 済み → Streamlit Cloud が自動再デプロイされています。
+- **今回 Turso を pure Python（`libsql-client`）版に書き直しました。** Rust ビルド不要なので
+  Streamlit Cloud で導入できます（前回の `sqlalchemy-libsql` 版はビルド失敗していました）。
+- **未設定なら従来どおりローカル SQLite で動作**（壊れません）。env を入れた時だけ Turso を使用。
 
-### Turso 永続キャッシュを有効化（任意・推奨）
-有効化すると、クラウドでもキャッシュが消えず**ウォーム1秒運用**になります。
-
-1. ターミナルで実行:
+### 有効化（任意・推奨。クラウドでもキャッシュが消えず再取得が減ります）
+1. ターミナルで：
    ```bash
-   cd /Users/yasuakinakamura/Documents/Claude/Projects/自動化で稼ぐ/keiba_predictor
+   cd "/Users/yasuakinakamura/Documents/Claude/Projects/自動化で稼ぐ/keiba_predictor"
    ./scripts/setup_turso.sh
    ```
 2. ブラウザで Turso にサインイン（GitHub アカウント可）
-3. 出力された `TURSO_DATABASE_URL` と `TURSO_AUTH_TOKEN` をコピー
-4. https://share.streamlit.io/ → 該当アプリ → Settings → Secrets に貼り付け:
-   ```toml
-   TURSO_DATABASE_URL = "libsql://..."
-   TURSO_AUTH_TOKEN = "ey..."
-   ```
-5. Save → アプリが自動再起動 → 以降は**ウォーム 1 秒運用**
-   （ローカルでも `.env.local` に保存されるので `streamlit run app.py` で有効）
+3. 出力された TOML を Streamlit Cloud に貼付：
+   - https://share.streamlit.io/ → アプリ → ⋮ → Settings → Secrets
+   - `TURSO_DATABASE_URL = "libsql://..."` と `TURSO_AUTH_TOKEN = "..."`
+   - Save
+4. アプリが自動再起動 → 画面下部の表示が「キャッシュ: Turso（永続）」になれば成功
+5. （任意）ローカルでも往復確認: `python scripts/test_turso_smoke.py`
 
-### Turso なしで運用する場合
-何もしなくて OK。並列化の効果でコールド 1.5〜2 分（1レース18頭で）で動きます。
-アプリ画面下部に現在のキャッシュ種別（ローカルSQLite / Turso）が表示されます。
+### 注意
+- 前回の `sqlalchemy-libsql` 版は Rust ビルドが必要で Streamlit Cloud では動作しなかった。
+- 今回の `libsql-client` 版は純 Python・HTTP/WebSocket ベースなのでクラウド上でも動作する。
+- env var 未設定なら従来通り **ローカル SQLite** で動作（壊れない）。
+- Turso の認証情報が不正・到達不能でも **8 秒で自動フォールバック**してアプリは起動する
+  （起動時に固まらないよう安全装置を入れた）。
+- 画面下部に現在のキャッシュ種別（ローカルSQLite / Turso（永続））が表示されます。
 
-### ⚠️ 万一クラウドのデプロイが失敗していたら
-`requirements.txt` 末尾の `libsql-experimental` と `sqlalchemy-libsql` の2行が
-原因の可能性。その2行を削除して push すれば復旧します（Turso 機能のみ無効化、
-アプリ本体・並列化は正常動作）。
+### 同時にこの夜で入れた他の改善（前回プロンプト分）
+- **並列化（3並列）でコールド取得が約 63〜73% 短縮**（東京1R: 121秒→45秒）。
+- UI: 推奨馬テーブルの上位3頭は**緑文字**、背景色ハイライトは廃止。
 
 ---
 
@@ -121,17 +119,28 @@ fb35837 feat: task8 streamlit UI + task9 betting suggester + task10a pipeline
   1レース最大150リクエストのハードキャップ。robots.txt 尊重は維持。
 - ログ: 並列取得時に `[client] parallel fetch: 3 workers, N urls` を出力（Cloud ログで確認可）。
 
-## 🗄 Turso 永続キャッシュ（朝の作業で有効化）
+## 🗄 Turso 永続キャッシュ — pure Python 版に書き直し（最新）
 
-- `src/storage/engine.py` 新設: `TURSO_DATABASE_URL` + `TURSO_AUTH_TOKEN` が
-  両方そろえば Turso（`sqlite+libsql://`）、無ければローカル SQLite に自動フォールバック。
-- 設定値は Streamlit secrets → 環境変数（`.env.local`）の順で読む。
-- 依存追加（インストール確認済み・3.14 で wheel あり）:
-  - `libsql-experimental==0.0.55` / `sqlalchemy-libsql==0.2.0`
-  - ※ これらが無くても import 失敗時はローカル SQLite にフォールバック。
-- スキーマ互換: モデルは `JSON` 型を使わず `Text + json.dumps` なので libSQL でそのまま動く。
-- `scripts/setup_turso.sh`（実行権限付与済み）で CLI 導入〜接続情報出力〜`.env.local` 保存まで自動。
-- テスト: `tests/test_turso_engine.py` 5件（接続文字列生成・フォールバックをモックで検証）。
+前回の `sqlalchemy-libsql`（Rust ビルド要）版が Streamlit Cloud で失敗したため、
+純 Python の **`libsql-client`**（HTTP/WebSocket、Rust不要）で書き直した。
+
+- **依存**: `requirements.txt` から `sqlalchemy-libsql` / `libsql-experimental` を**削除**、
+  `libsql-client>=0.3.0` のみ追加。`pip install -r requirements.txt` がエラーなく完了（macOS で確認、純 Python なので Linux も可）。インストール検証: 0.3.1。
+- `src/storage/turso_backend.py` 新設: `create_client_sync` で生 SQL を実行。repo と同じ
+  メソッド群（upsert_*/get_*/has_pedigree_for_sire/add_scrape_log）+ `transaction()`。
+  get_* は SQLAlchemy モデルを transient で組み立てて返す（呼び出し側を変えずに差し替え）。
+- `src/storage/engine.py`: Turso 認証情報の判定（secrets→env）とローカル SQLite 生成のみに簡素化。
+- `src/storage/repo.py`: 各公開関数が `_active_backend()` を見て Turso へ委譲、無ければ従来の
+  SQLAlchemy 経路（**既存呼び出し・テストは無変更**）。`describe_backend()` を追加。
+- **DDL**: `src/storage/ddl.sql`（生 SQL）を新設。`schema_discrepancies()` で models.py と
+  列の整合をチェック → **差異ゼロ**を確認。init_db で食い違い時に警告ログ。
+- **安全装置**: Turso 接続は daemon スレッド + **8秒タイムアウト**。不正/到達不能 URL でも
+  自動でローカル SQLite にフォールバックし、アプリは固まらず起動する（bogus URL で実測 3秒で復帰）。
+- スキーマ互換: モデルは `JSON` 型を使わず `Text` なので libSQL でそのまま動く。
+- `scripts/setup_turso.sh`（既存・実行権限あり）/ `scripts/test_turso_smoke.py`（実接続往復確認）。
+- テスト: `tests/test_turso_backend.py` 11件 + `tests/test_turso_engine.py` 5件（実接続せずモック）。
+  **全 100 件 PASS**。
+- 検証: env 未設定 → `streamlit run app.py` 正常起動（HTTP 200）/ bogus env → フォールバックで起動。
 
 ## 完了タスク
 
