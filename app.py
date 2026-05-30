@@ -14,10 +14,15 @@ import sys
 from pathlib import Path
 
 import streamlit as st
+from dotenv import load_dotenv
 
 # プロジェクトルートを import パスに追加
 ROOT = Path(__file__).resolve().parent
 sys.path.insert(0, str(ROOT))
+
+# ローカルで Turso を使う場合の認証情報（.env.local, git 管理外）を読み込む。
+# クラウドでは st.secrets が使われるため、ここに無くても問題ない。
+load_dotenv(ROOT / ".env.local")
 
 from src import pipeline  # noqa: E402
 from src.betting.suggester import suggest_bets  # noqa: E402
@@ -118,6 +123,12 @@ def main() -> None:
         render_betting_panel(suggestion)
 
     st.divider()
+    try:
+        from src.storage import engine as _engine
+        st.caption(f"🗄 キャッシュ: {_engine.describe_backend()}　|　⚙️ 並列取得: "
+                   f"{__import__('config').PARALLEL_MAX_CONCURRENT}本")
+    except Exception:
+        pass
     st.caption("⚠️ 本アプリは個人利用・学習目的。投資判断は自己責任です。")
 
 

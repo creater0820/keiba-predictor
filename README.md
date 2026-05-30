@@ -139,6 +139,26 @@ git remote add origin https://github.com/<USERNAME>/keiba-predictor.git
 git push -u origin main
 ```
 
+### Turso 永続キャッシュ（任意・推奨）
+
+Streamlit Cloud はファイルシステムが再起動で消えるため、デフォルトでは毎回 netkeiba
+から取り直しになります。これを避けたい場合、**Turso（libSQL のクラウド SQLite）** を
+永続キャッシュとして使えます。
+
+```bash
+./scripts/setup_turso.sh   # Turso CLI 導入・ログイン・DB作成・接続情報出力
+```
+
+出力された `TURSO_DATABASE_URL` / `TURSO_AUTH_TOKEN` を:
+- **クラウド**: Streamlit Cloud → アプリ → Settings → Secrets に貼り付け
+- **ローカル**: 自動で `.env.local`（git 管理外）に保存される
+
+`TURSO_DATABASE_URL` と `TURSO_AUTH_TOKEN` が両方そろったときだけ Turso を使い、
+**未設定ならローカル SQLite で従来どおり動作**します（`src/storage/engine.py`）。
+
+> Turso ドライバ（`sqlalchemy-libsql` / `libsql-experimental`）が無い環境でも、
+> 自動でローカル SQLite にフォールバックします。
+
 ### ★ クラウド動作時の制限事項
 
 - **キャッシュは永続化されません**。Streamlit Cloud はアプリ再起動でファイル

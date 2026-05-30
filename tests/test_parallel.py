@@ -32,20 +32,26 @@ def client(tmp_path):
 
 
 def test_fetch_many_gets_all_and_is_faster_than_sequential(client, monkeypatch):
-    """3並列でN件取得 → 全部取れ、所要時間が逐次(N×interval)より短いこと。"""
-    # テストを速くするため間隔を小さく
+    """3並列が 1並列より明確に速いこと（マシン速度に依存しない相対比較）。"""
     monkeypatch.setattr(config, "MIN_INTERVAL_PER_WORKER", 0.1)
     monkeypatch.setattr(client._session, "get", MagicMock(return_value=_resp()))
 
-    urls = [f"https://race.netkeiba.com/p{i}" for i in range(9)]
-    start = time.monotonic()
-    results = client.fetch_many(urls, max_concurrent=3)
-    elapsed = time.monotonic() - start
+    # 1並列（実効 0.1s/req）の所要時間
+    urls_seq = [f"https://race.netkeiba.com/s{i}" for i in range(9)]
+    t = time.monotonic()
+    r_seq = client.fetch_many(urls_seq, max_concurrent=1)
+    seq_time = time.monotonic() - t
 
-    assert len(results) == 9
-    assert all(v is not None for v in results.values())
-    # 逐次なら 9×0.1=0.9s。3並列(間隔0.0333s)なら ~0.27s。明確に短いこと。
-    assert elapsed < 0.9 * 0.8
+    # 3並列（実効 0.033s/req）の所要時間（別URLでキャッシュ干渉なし）
+    urls_par = [f"https://race.netkeiba.com/p{i}" for i in range(9)]
+    t = time.monotonic()
+    r_par = client.fetch_many(urls_par, max_concurrent=3)
+    par_time = time.monotonic() - t
+
+    assert len(r_seq) == 9 and all(v is not None for v in r_seq.values())
+    assert len(r_par) == 9 and all(v is not None for v in r_par.values())
+    # 3並列は1並列より明確に速い（理論 1/3、余裕を見て 0.6 倍未満）
+    assert par_time < seq_time * 0.6
 
 
 def test_fetch_many_degrades_and_aborts_on_repeated_429(client, monkeypatch):

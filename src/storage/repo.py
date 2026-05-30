@@ -46,8 +46,9 @@ def get_engine(db_url: str | None = None) -> Engine:
         engine = create_engine(db_url, future=True)
         return engine
     if _engine is None:
-        config.ensure_dirs()
-        _engine = create_engine(config.DB_URL, future=True)
+        # 既定パスは Turso 対応エンジン（未設定ならローカル SQLite にフォールバック）
+        from src.storage import engine as engine_mod
+        _engine = engine_mod.create_app_engine()
         _SessionFactory = sessionmaker(bind=_engine, future=True)
     return _engine
 
