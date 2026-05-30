@@ -1,24 +1,26 @@
+# Streamlit Community Cloud 用にバージョン固定（pip freeze ベース）。
+# playwright は未使用（全取得は requests + BeautifulSoup）のため依存から除外。
+
 # Web フレームワーク
-streamlit>=1.40
+streamlit==1.58.0
 
 # スクレイピング
-requests>=2.32
-beautifulsoup4>=4.12
-lxml>=5.0                # bs4 のパーサ（html.parser より高速・堅牢）
-playwright>=1.48         # JS レンダリングが必要なページのみ使用
+requests==2.34.2
+beautifulsoup4==4.14.3
+lxml==6.1.1              # bs4 のパーサ（html.parser より高速・堅牢）
 
 # データ処理
-pandas>=2.2
-numpy>=2.0
+pandas==3.0.3
+numpy==2.4.6
 
 # キャッシュ DB
-SQLAlchemy>=2.0
+SQLAlchemy==2.0.50
 
 # 可視化
-plotly>=5.24
+plotly==6.7.0
 
 # 設定ファイル（.env 読み込み）
-python-dotenv>=1.0
+python-dotenv==1.2.2
 
-# テスト
-pytest>=8.3
+# テスト（ローカル開発用。クラウド実行には不要だが軽量なので残す）
+pytest==9.0.3

@@ -21,3 +21,5 @@ data/*.db-journal
 # Streamlit
 .streamlit/secrets.toml
 data/cache.db
+# 予想結果（個人成果物・リポジトリ外だが念のため除外）
+predictions/

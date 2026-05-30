@@ -119,6 +119,36 @@ python scripts/predict_derby.py
 - 失敗時は最大 3 回まで指数バックオフでリトライ
 - **公開ページのみ**取得（ログイン必須ページには触れない）
 
+## Streamlit Community Cloud へのデプロイ
+
+このリポジトリは Streamlit Community Cloud でそのままデプロイできる構成です。
+
+- リポジトリルートに `app.py` / `requirements.txt` / `runtime.txt`(python-3.11)
+- 依存はバージョン固定済み。`playwright` は未使用のため除外しています。
+
+### デプロイ（手動 1 ステップ）
+
+GitHub に push 後、ブラウザで [share.streamlit.io](https://share.streamlit.io) から
+接続します（詳細手順は `STATUS.md` 上部参照）。Main file path は `app.py`。
+
+### GitHub への push（gh が無い場合のフォールバック）
+
+```bash
+git branch -M main
+git remote add origin https://github.com/<USERNAME>/keiba-predictor.git
+git push -u origin main
+```
+
+### ★ クラウド動作時の制限事項
+
+- **キャッシュは永続化されません**。Streamlit Cloud はアプリ再起動でファイル
+  システムがリセットされるため、`data/cache.db` は消え、**再起動のたびに netkeiba
+  から取り直し**になります（1レースあたり数分・60〜90リクエスト）。
+- **クラウド IP からの netkeiba アクセスはブロックされる可能性**があります
+  （データセンター IP への制限・レート制限）。取得失敗時はアプリ内 `st.error`
+  で表示されますが、その場合は**ローカル実行を推奨**します。
+- 上記のため、Streamlit Cloud は「デモ・共有用」、本格利用はローカル iMac を想定。
+
 ## データモデル（SQLite テーブル）
 
 | テーブル | 主キー | 内容 |
