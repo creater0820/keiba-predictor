@@ -328,9 +328,12 @@ class NetkeibaClient:
                     f"取得失敗 status={response.status_code} url={url}"
                 )
 
-            # 文字化け対策: netkeiba は EUC-JP / UTF-8 が混在しうるので
-            # requests の推定に任せる（apparent_encoding を優先）。
-            if response.encoding is None or response.encoding.lower() == "iso-8859-1":
+            # 文字化け対策: netkeiba は EUC-JP / UTF-8 が混在し、さらに一部ページは
+            # Content-Type の charset を空（charset=）で返すため requests の推定が
+            # 効かない。エンコーディングが未指定・空・iso-8859-1 のときは
+            # apparent_encoding（中身から推定）に切り替える。
+            enc = (response.encoding or "").lower()
+            if not enc or enc == "iso-8859-1":
                 response.encoding = response.apparent_encoding
 
             etag = response.headers.get("ETag")

@@ -4,9 +4,33 @@
 
 ---
 
-## 🌅 朝のチェックリスト（最後に更新）
+## 🌅 朝のチェックリスト
 
-> ※ 全タスク完了後にここを埋める。
+**全タスク完了 ✅（Task 1〜10 すべて実装・実走済み）**
+
+| Task | 状態 | 概要 |
+|---|:--:|---|
+| 1-2 スケルトン+client | ✅ | robots/レート制限/HTTPキャッシュ |
+| 3 race_list/race_card | ✅ | 一覧・出走表 |
+| 4 storage | ✅ | 6テーブル+repo |
+| 5 track_bias/pedigree | ✅ | バイアス算出・種牡馬成績 |
+| 6 analysis 3スコア | ✅ | 純粋関数+脚質推定 |
+| 7 combiner | ✅ | softmax確率化 |
+| 8 Streamlit UI | ✅ | 3タブ、HTTP200起動確認 |
+| 9 betting | ✅ | EV/ケリー or 確率ベース |
+| 10A pipeline | ✅ | 統合 predict_race |
+| 10B README | ✅ | データモデル・制限事項記載 |
+| 10C ダービー実走 | ✅ | **Markdown出力済み** |
+
+**生成物（朝、Yasu が読むもの）:**
+- 📄 `/Users/yasuakinakamura/Documents/Claude/Projects/自動化で稼ぐ/predictions/derby_20260531.md`
+  - 日本ダービー(東京11R 芝2400m 18頭) 確率ランキング+上位5頭理由+買い目
+  - モデル本命: **6 コンジェスタス**（オッズ取得成功・EV連動の買い目あり）
+
+**既知の問題と朝の推奨アクション（3行）:**
+1. 勝率が尖りすぎ（本命94%）→ より現実的にするには UI で temperature を 2.5 前後に上げて再確認。
+2. EV+983% 等は「モデルが過信気味」なだけで確実な利益ではない。買い目は参考程度に。
+3. アプリ起動: `cd keiba_predictor && source .venv/bin/activate && streamlit run app.py`
 
 ---
 
@@ -64,7 +88,26 @@
 - BettingSuggestion/BetRow dataclass、金額100円単位
 - テスト: +8件（EV計算/ゼロ予算/オッズ全欠損/極端確率 等）
 
-**累計テスト: 74件 PASS（時点）**
+### Task 10-B: README 完成
+- セットアップ/起動/CLI予想/データモデル表/制限事項/免責 を整備
+
+### Task 10-C: ダービー実走 ★最重要★
+- `scripts/predict_derby.py`: 東京同日race_listから「優駿/ダービー」自動探索 → 11R 日本ダービー特定
+- 実走: 18頭フル取得 **コールド 154秒**（race_list+shutuba+track_bias+18頭×(血統ped+種牡馬+脚質)）
+- **オッズ取得成功**（api_get_jra_odds, 18頭分）→ EV連動の買い目を提案
+- 出力: `../predictions/derby_20260531.md`
+
+### 🐛 実走中に発見・修正したバグ（重要）
+- **エンコーディング**: race.netkeiba.com の shutuba 等は `Content-Type: charset=`（空）を返し、
+  requests が encoding='' を設定 → 馬名が文字化け。client.py を `not enc` でも apparent_encoding に
+  フォールバックするよう修正。回帰テスト追加（test_empty_charset_falls_back_to_apparent_encoding）。
+  ※スコア算出は馬番・ID（ASCII）ベースのため数値結果に影響なし。表示名のみ破損していた。
+
+**累計テスト: 75件 PASS**
+
+### リクエスト数・所要時間まとめ（実測）
+- 1レース16頭フル: コールド 64req / 121秒、ウォーム 0req / 0.6秒
+- ダービー18頭フル: コールド 154秒、再生成（shutubaのみ再取得）3秒
 
 ---
 

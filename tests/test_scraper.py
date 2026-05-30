@@ -106,6 +106,25 @@ def test_retry_on_temporary_error(client, monkeypatch):
     assert mock_get.call_count == 2
 
 
+def test_empty_charset_falls_back_to_apparent_encoding(client, monkeypatch):
+    """Content-Type の charset が空（encoding='')でも apparent_encoding で復号すること。
+
+    netkeiba の一部ページ（shutuba 等）は charset= を空で返すため、
+    そのままだと文字化けする。client がこれを検出して直すかを検証する。
+    """
+    resp = _make_response("<html>出走表</html>")
+    resp.encoding = ""              # 空 charset を再現
+    resp.apparent_encoding = "EUC-JP"
+    mock_get = MagicMock(return_value=resp)
+    monkeypatch.setattr(client._session, "get", mock_get)
+    monkeypatch.setattr(client, "_respect_rate_limit", lambda: None)
+
+    client.fetch("https://race.netkeiba.com/race/shutuba.html?race_id=1")
+
+    # 空エンコーディングを apparent_encoding に切り替えたこと
+    assert resp.encoding == "EUC-JP"
+
+
 def test_client_factory_creates_db(client):
     """初期化時にキャッシュ DB（http_cache テーブル）が作られること。"""
     import sqlite3
