@@ -1,0 +1,24 @@
+# Web フレームワーク
+streamlit>=1.40
+
+# スクレイピング
+requests>=2.32
+beautifulsoup4>=4.12
+lxml>=5.0                # bs4 のパーサ（html.parser より高速・堅牢）
+playwright>=1.48         # JS レンダリングが必要なページのみ使用
+
+# データ処理
+pandas>=2.2
+numpy>=2.0
+
+# キャッシュ DB
+SQLAlchemy>=2.0
+
+# 可視化
+plotly>=5.24
+
+# 設定ファイル（.env 読み込み）
+python-dotenv>=1.0
+
+# テスト
+pytest>=8.3
