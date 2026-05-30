@@ -4,6 +4,38 @@
 
 ---
 
+## 🚀 Streamlit Cloud デプロイ手順（手動 — Yasu が実施）
+
+GitHub への push は完了済み（Private）: **https://github.com/creater0820/keiba-predictor**
+
+最後の 1 ステップ（ブラウザ操作）だけ手動です:
+
+1. https://share.streamlit.io にアクセス → GitHub アカウントでサインイン
+2. 「Create app」→「Deploy a public app from GitHub」ではなく自分のリポジトリを選択
+3. Repository: `creater0820/keiba-predictor`
+4. Branch: `main`
+5. **Main file path: `app.py`**（リポジトリ直下。ネストしていないのでこのままで OK）
+6. App URL（任意）: `keiba-predictor` 等
+7. 「Deploy!」をクリック → 数分待つと `https://<...>.streamlit.app` が発行される
+
+### アクセス制限したい場合
+- アプリ設定 → Sharing → 「Viewers」で Google アカウントを指定すると限定公開（無料枠あり）。
+
+### ⚠️ クラウド動作時の注意
+- キャッシュ（data/cache.db）は再起動で消えるため、毎回 netkeiba から再取得（1レース数分）。
+- クラウド IP から netkeiba がブロックされる可能性あり。失敗時は `st.error` 表示 → ローカル実行推奨。
+
+### 最新コミット（git log --oneline -5）
+```
+abf40e5 chore: prepare for streamlit cloud deploy
+e9083fe feat: task9 betting tests + task10 pipeline/README/derby + encoding fix
+fb35837 feat: task8 streamlit UI + task9 betting suggester + task10a pipeline
+6cda891 feat: tasks 1-7 scraper/storage/analysis/combiner skeleton + tests
+```
+（デプロイ準備後のコミットは下記参照）
+
+---
+
 ## 🌅 朝のチェックリスト
 
 **全タスク完了 ✅（Task 1〜10 すべて実装・実走済み）**
