@@ -4,6 +4,44 @@
 
 ---
 
+## おはよう Yasu さん。朝の手順（5 分）
+
+### 即時確認
+- アプリ: https://keiba-predictor-eah6al9bbkdldtbwmj2wk2.streamlit.app
+- **並列化（3並列）でコールド取得が約 63〜73% 短縮**しました（東京1R: 121秒→45秒）。
+  ベンチ詳細は下の「⚡ 高速化」表。
+- UI: 推奨馬テーブルの上位3頭は**緑文字**になり、背景色ハイライトは廃止しました。
+- すべて push 済み → Streamlit Cloud が自動再デプロイされています。
+
+### Turso 永続キャッシュを有効化（任意・推奨）
+有効化すると、クラウドでもキャッシュが消えず**ウォーム1秒運用**になります。
+
+1. ターミナルで実行:
+   ```bash
+   cd /Users/yasuakinakamura/Documents/Claude/Projects/自動化で稼ぐ/keiba_predictor
+   ./scripts/setup_turso.sh
+   ```
+2. ブラウザで Turso にサインイン（GitHub アカウント可）
+3. 出力された `TURSO_DATABASE_URL` と `TURSO_AUTH_TOKEN` をコピー
+4. https://share.streamlit.io/ → 該当アプリ → Settings → Secrets に貼り付け:
+   ```toml
+   TURSO_DATABASE_URL = "libsql://..."
+   TURSO_AUTH_TOKEN = "ey..."
+   ```
+5. Save → アプリが自動再起動 → 以降は**ウォーム 1 秒運用**
+   （ローカルでも `.env.local` に保存されるので `streamlit run app.py` で有効）
+
+### Turso なしで運用する場合
+何もしなくて OK。並列化の効果でコールド 1.5〜2 分（1レース18頭で）で動きます。
+アプリ画面下部に現在のキャッシュ種別（ローカルSQLite / Turso）が表示されます。
+
+### ⚠️ 万一クラウドのデプロイが失敗していたら
+`requirements.txt` 末尾の `libsql-experimental` と `sqlalchemy-libsql` の2行が
+原因の可能性。その2行を削除して push すれば復旧します（Turso 機能のみ無効化、
+アプリ本体・並列化は正常動作）。
+
+---
+
 ## 🚀 Streamlit Cloud デプロイ手順（手動 — Yasu が実施）
 
 GitHub への push は完了済み（Private）: **https://github.com/creater0820/keiba-predictor**
@@ -82,6 +120,18 @@ fb35837 feat: task8 streamlit UI + task9 betting suggester + task10a pipeline
 - 安全装置: 429/503 連発→並列度を実質1に降格(60s クールダウン)→3連続で中断。
   1レース最大150リクエストのハードキャップ。robots.txt 尊重は維持。
 - ログ: 並列取得時に `[client] parallel fetch: 3 workers, N urls` を出力（Cloud ログで確認可）。
+
+## 🗄 Turso 永続キャッシュ（朝の作業で有効化）
+
+- `src/storage/engine.py` 新設: `TURSO_DATABASE_URL` + `TURSO_AUTH_TOKEN` が
+  両方そろえば Turso（`sqlite+libsql://`）、無ければローカル SQLite に自動フォールバック。
+- 設定値は Streamlit secrets → 環境変数（`.env.local`）の順で読む。
+- 依存追加（インストール確認済み・3.14 で wheel あり）:
+  - `libsql-experimental==0.0.55` / `sqlalchemy-libsql==0.2.0`
+  - ※ これらが無くても import 失敗時はローカル SQLite にフォールバック。
+- スキーマ互換: モデルは `JSON` 型を使わず `Text + json.dumps` なので libSQL でそのまま動く。
+- `scripts/setup_turso.sh`（実行権限付与済み）で CLI 導入〜接続情報出力〜`.env.local` 保存まで自動。
+- テスト: `tests/test_turso_engine.py` 5件（接続文字列生成・フォールバックをモックで検証）。
 
 ## 完了タスク
 
@@ -165,3 +215,17 @@ fb35837 feat: task8 streamlit UI + task9 betting suggester + task10a pipeline
 - 血統: サンプル<30はベイズ平均で全体平均に収縮
 - トラックバイアス: 予想日に結果が無ければ前日同会場へフォールバック、それも無ければ中立50
 - combiner: スコア0〜100をlogitに使うため t=1.0 は比較的シャープ（UIで調整）
+
+---
+
+## コミット履歴（git log --oneline -10）
+```
+3dbf8e8 feat(storage): Turso libSQL persistent cache with local SQLite fallback + setup script
+d84f994 feat(scraper): parallel fetch_many (3 workers, ~73% faster cold) + rate-limit safety
+0a8e862 feat(ui): green text for top-3 rank/name, remove background highlight
+8e30faa docs: add streamlit cloud deploy steps to STATUS
+abf40e5 chore: prepare for streamlit cloud deploy
+e9083fe feat: task9 betting tests + task10 pipeline/README/derby + encoding fix
+fb35837 feat: task8 streamlit UI + task9 betting suggester + task10a pipeline
+6cda891 feat: tasks 1-7 scraper/storage/analysis/combiner skeleton + tests
+```
