@@ -26,15 +26,20 @@ def render_factor_breakdown(result: RaceProbabilities) -> None:
         st.info("表示できるデータがありません。")
         return
 
-    only_top5 = st.checkbox("上位5頭のみ表示", value=len(result.horses) > 8)
-    horses = result.horses[:5] if only_top5 else result.horses
-
-    _render_chart(horses, result.weights)
+    only_top5 = st.checkbox(
+        "棒グラフを上位5頭のみ表示",
+        value=len(result.horses) > 8,
+        help="評価理由カードは常に全頭表示されます。このチェックは棒グラフのみに作用します。",
+    )
+    # 棒グラフはチェックで上位5頭に絞れる。評価理由カードは常に全頭。
+    chart_horses = result.horses[:5] if only_top5 else result.horses
+    _render_chart(chart_horses, result.weights)
 
     st.divider()
     st.markdown("## 各馬の評価理由")
-    st.caption("スコアは中立(50)からの差。`+`が大きいほどその要素で高評価。")
-    render_horse_reasoning(horses)
+    st.caption("全頭表示。上位3頭は展開、4位以下は折りたたみ（クリックで展開）。"
+               "スコアは中立(50)からの差。`+`が大きいほどその要素で高評価。")
+    render_horse_reasoning(result.horses)
 
 
 def _render_chart(horses, w) -> None:
@@ -71,16 +76,17 @@ def _render_chart(horses, w) -> None:
 
 
 def render_horse_reasoning(horses) -> None:
-    """各馬を expander で折りたたみ、3 要素の理由を自然文で表示する。
+    """全頭を expander で表示し、3 要素の理由を自然文で出す。
 
-    上位5頭はデフォルト展開、6位以下は折りたたみ。details が無い馬でも
-    reasoning 側が安全な文言を返すため落ちない。
+    上位3頭はデフォルト展開、4位以下は折りたたみ（クリックで即展開できるよう、
+    テキスト自体は事前に生成済み）。details が無い馬でも reasoning 側が安全な
+    文言を返すため落ちない。
     """
     for rank, h in enumerate(horses, start=1):
         badge = _conf_badge(h.confidence)
         star = "⭐ " if rank <= 3 else ""
         label = f"{rank}位  {star}{h.horse_number} {h.horse_name}　（{h.win_pct:.1f}% / {badge}）"
-        with st.expander(label, expanded=(rank <= 5)):
+        with st.expander(label, expanded=(rank <= 3)):
             details = h.details or {}
             _factor_block(
                 "📊", "トラックバイアス",
