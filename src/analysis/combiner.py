@@ -81,6 +81,7 @@ class RaceProbabilities:
     temperature: float
     weights: CombineWeights          # 正規化済み
     horses: list[HorseProbability] = field(default_factory=list)
+    meta: dict = field(default_factory=dict)  # レース情報・データソース等（UI/出力用）
 
     def to_rows(self) -> list[dict]:
         """各馬の breakdown を行リスト(list[dict])で返す。pandas 不要。"""

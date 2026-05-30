@@ -45,7 +45,26 @@
 - RaceProbabilities/HorseProbability dataclass、breakdownはDataFrame化容易
 - テスト: +19件（エッジケース込み）
 
-**累計テスト: 66件 PASS（時点）**
+### Task 10-A: src/pipeline.py（先行実装）
+- `predict_race(date, venue, race_no, weights, temperature, force_refresh, progress)` → RaceProbabilities
+- race_list→race_card→各馬(血統+脚質)→track_bias→3スコア→combiner を一本化
+- 各馬の取得失敗は中立フォールバックで続行（落とさない）
+- meta にレース情報・バイアス出所・global_avg を格納（UI/Markdown用）
+
+### Task 8: Streamlit UI 一式
+- `app.py`（3タブ: 推奨馬/根拠の可視化/買い目提案、st.cache_data TTL12h、spinner、st.errorで非停止）
+- `src/ui/sidebar.py`（日付=明日デフォルト/会場・レース選択/重み3スライダー/temperature/再取得ボタン/データソースcaption）
+- `src/ui/results_table.py`（確率降順DF、上位3頭ハイライトStyler、信頼度バッジ🟢🟡🔴）
+- `src/ui/factor_breakdown.py`（plotly積み上げ横棒、ホバーでbreakdown、上位5頭切替）
+- `src/ui/betting_panel.py`
+- **ヘッドレス起動確認: streamlit run app.py → HTTP 200・7秒継続稼働 ✅**
+
+### Task 9: betting/suggester.py
+- 純粋関数。オッズあり→EV>+10%単勝(1/4ケリー配分)+上位2頭馬連 / なし→上位3複勝+馬連
+- BettingSuggestion/BetRow dataclass、金額100円単位
+- テスト: +8件（EV計算/ゼロ予算/オッズ全欠損/極端確率 等）
+
+**累計テスト: 74件 PASS（時点）**
 
 ---
 
